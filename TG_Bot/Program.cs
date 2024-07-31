@@ -6,38 +6,35 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace TG_Bot
 {
-
-    class Program
+    // Интерфейс для обработки сообщений
+    public interface IMessageHandler
     {
-        private static string token { get; set; } = "7432274321:AAGxGF2d76TFTioF5aPxwogtwg7w5hJbXoc";
+        void HandleMessage(object sender, MessageEventArgs e);
+    }
+    // Интерфейс для команд бота
+    public interface IBotCommand
+    {
+        string Execute(string input);
+    }
 
-        private static TelegramBotClient client;
-
-        private static string currentFunction = string.Empty;
-
-        static void Main(string[] args)
+    // Команда для подсчета символов
+    public class CalculateLength : IBotCommand
+    {
+        public string Execute(string input)
         {
-            client = new TelegramBotClient(token);
-
-            client.StartReceiving();
-            client.OnMessage += OnMessageHandler;
-            Console.ReadLine();
-            client.StopReceiving();
-        }
-        //Счёт символов в строке 
-        private static string CalculateLength(string str)
-        {
-            string strWithoutSpaces = str.Replace(" ", string.Empty);
+            string strWithoutSpaces = input.Replace(" ", string.Empty);
             int length = strWithoutSpaces.Length;
             return $"В вашем сообщении {length} символов.";
         }
-        //Счёт чисел
-        private static string CalculateSum(string str)
+    }
+    // Команда для подсчета суммы 
+    public class CalculateSum : IBotCommand
+    {
+        public string Execute(string input)
         {
-            
             try
             {
-                int sum = str.Split(' ').Select(int.Parse).Sum();
+                int sum = input.Split(' ').Select(int.Parse).Sum();
                 return $"Сумма чисел: {sum}.";
             }
             catch
@@ -45,15 +42,28 @@ namespace TG_Bot
                 return "Ошибка: введите корректные числа через пробел.";
             }
         }
-        //Обработка сообщений 
-        private static async void OnMessageHandler(object sender, MessageEventArgs e)
+    }
+    // Класс для обработки сообщений
+    public class BotMessageHandler : IMessageHandler
+    {
+        private TelegramBotClient _client;
+        private string _currentFunction;
+        private IBotCommand _currentCommand;
+
+        public BotMessageHandler(TelegramBotClient client)
+        {
+            _client = client;
+            _currentFunction = string.Empty;
+        }
+
+        public async void HandleMessage(object sender, MessageEventArgs e)
         {
             var msg = e.Message;
             if (msg?.Text != null)
             {
                 if (msg.Text == "/start")
                 {
-                    currentFunction = string.Empty; // Сбрасываем текущую функцию при старте
+                    _currentFunction = string.Empty;
                     var replyKeyboard = new ReplyKeyboardMarkup(new[]
                     {
                         new KeyboardButton[] { "Подсчитать символы", "Вычислить сумму чисел" }
@@ -62,37 +72,51 @@ namespace TG_Bot
                         ResizeKeyboard = true
                     };
 
-                    await client.SendTextMessageAsync(msg.Chat.Id, "Выберите действие:", replyMarkup: replyKeyboard);
+                    await _client.SendTextMessageAsync(msg.Chat.Id, "Выберите действие:", replyMarkup: replyKeyboard);
                 }
-                else if (currentFunction == string.Empty)
+                else if (_currentFunction == string.Empty)
                 {
                     if (msg.Text == "Подсчитать символы")
                     {
-                        currentFunction = "lenght";
-                        await client.SendTextMessageAsync(msg.Chat.Id, "Отправьте текст для подсчета символов.");
+                        _currentFunction = "length";
+                        _currentCommand = new CalculateLength();
+                        await _client.SendTextMessageAsync(msg.Chat.Id, "Отправьте текст для подсчета символов.");
                     }
                     else if (msg.Text == "Вычислить сумму чисел")
                     {
-                        currentFunction = "sum";
-                        await client.SendTextMessageAsync(msg.Chat.Id, "Отправьте числа через пробел для вычисления суммы.");
+                        _currentFunction = "sum";
+                        _currentCommand = new CalculateSum();
+                        await _client.SendTextMessageAsync(msg.Chat.Id, "Отправьте числа через пробел для вычисления суммы.");
                     }
                     else
                     {
-                        await client.SendTextMessageAsync(msg.Chat.Id, "Пожалуйста, выберите одно из действий из меню.");
+                        await _client.SendTextMessageAsync(msg.Chat.Id, "Пожалуйста, выберите одно из действий из меню.");
                     }
                 }
-                else if (currentFunction == "lenght")
+                else
                 {
-                    string response = CalculateLength(msg.Text);
-                    await client.SendTextMessageAsync(msg.Chat.Id, response, replyToMessageId: msg.MessageId);
-                    currentFunction = string.Empty;
-                }
-                else if (currentFunction == "sum")
-                {
-                    string response = CalculateSum(msg.Text);
-                    await client.SendTextMessageAsync(msg.Chat.Id, response, replyToMessageId: msg.MessageId);
+                    string response = _currentCommand.Execute(msg.Text);
+                    await _client.SendTextMessageAsync(msg.Chat.Id, response, replyToMessageId: msg.MessageId);
+                    _currentFunction = string.Empty;
                 }
             }
+        }
+    }
+    class Program
+    {
+        private static string token { get; set; } = "7432274321:AAGxGF2d76TFTioF5aPxwogtwg7w5hJbXoc";
+
+        static void Main(string[] args)
+        {
+            var client = new TelegramBotClient(token);
+
+            var messageHandler = new BotMessageHandler(client);
+
+            client.OnMessage += messageHandler.HandleMessage;
+
+            client.StartReceiving();
+            Console.ReadLine();
+            client.StopReceiving();
         }
     }
 }
